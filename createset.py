@@ -25,7 +25,7 @@ def collect_words():
             w = lemma.name().lower()
             if not w.isalpha():
                 continue
-            if len(w) < 3 or len(w) > 15: # hard bound on word length
+            if len(w) < 3 or len(w) > 20: # TODO hard bound on word length, I found 15 to be the sweet spot
                 continue
             if w in words:
                 continue
@@ -45,7 +45,7 @@ scored.sort(key=lambda x: x[2])
 
 # Percentile bucket — guarantees even split
 n = len(scored)
-easy_cut   = int(n * 0.33)
+easy_cut = int(n * 0.33)
 medium_cut = int(n * 0.66)
 
 output = []
@@ -64,20 +64,3 @@ random.shuffle(output)
 
 with open("words.json", "w") as f:
     json.dump(output, f)
-
-# Print score range per tier so you can sanity check
-easy_scores   = [s for _, _, s in scored[:easy_cut]]
-medium_scores = [s for _, _, s in scored[easy_cut:medium_cut]]
-hard_scores   = [s for _, _, s in scored[medium_cut:]]
-
-print(f"\nEasy:   {len(easy_scores)} words, score range {easy_scores[0]:.1f} – {easy_scores[-1]:.1f}")
-print(f"Medium: {len(medium_scores)} words, score range {medium_scores[0]:.1f} – {medium_scores[-1]:.1f}")
-print(f"Hard:   {len(hard_scores)} words, score range {hard_scores[0]:.1f} – {hard_scores[-1]:.1f}")
-
-print("=== 10 EASIEST ===")
-for w, defn, s in scored[:10]:
-    print(f"  {w:<20} score: {s:.1f}  ({defn[:50]})")
-
-print("\n=== 10 HARDEST ===")
-for w, defn, s in scored[-10:]:
-    print(f"  {w:<20} score: {s:.1f}  ({defn[:50]})")
