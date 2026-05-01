@@ -13,7 +13,7 @@ void clear_row(int row) {
 }
 
 struct MorseNode {
-    char letter; // \0 if internal node (no letter at the root of a morse code binary tree)
+    char letter; // \0 if internal node (no letter at the root of a morse binary tree)
     MorseNode* dot; // left = Z key
     MorseNode* dash; // right = X key
 
@@ -163,6 +163,21 @@ int parse_display_dist(int argc, char* argv[]) {
     return 0;
 }
 
+void highlight_node(MorseNode* cur, char next_expected) {
+    if (!cur || cur->letter == '\0') return;
+
+    auto it = TREE_POS.find(cur->letter);
+    if (it == TREE_POS.end()) return;
+
+    int row = it->second.first;
+    int col = it->second.second;
+
+    int color = (cur->letter == next_expected) ? 1 : 2; // maybe implement in the future, not really useful
+    attron(COLOR_PAIR(color) | A_BOLD);
+    mvprintw(row, col, "%c", toupper(cur->letter));
+    attroff(COLOR_PAIR(color) | A_BOLD);
+}
+
 void ncurses_setup() {
     initscr();
     noecho();
@@ -171,20 +186,11 @@ void ncurses_setup() {
     start_color();
     set_escdelay(25);
 
-    /** // TODO give color to ., -, =, 0 
-    init_pair(1, COLOR_YELLOW,  COLOR_BLACK);  // @ player
-    init_pair(2, COLOR_GREEN,   COLOR_BLACK);  // . short grass
-    init_pair(3, COLOR_GREEN,   COLOR_BLACK);  // : tall grass
-    init_pair(4, COLOR_WHITE,   COLOR_BLACK);  // # path
-    init_pair(5, COLOR_YELLOW,   COLOR_BLACK);  // % boulder
-    init_pair(6, COLOR_CYAN,    COLOR_BLACK);  // ~ water
-    init_pair(7, COLOR_MAGENTA,   COLOR_BLACK);  // default
-    init_pair(8, COLOR_MAGENTA,   COLOR_BLACK);  // default
-    init_pair(9, COLOR_WHITE,   COLOR_BLACK);  // default
-    */
+    init_pair(2, COLOR_GREEN,   COLOR_BLACK); // current
 }
 
-void game_render(const string& target, const string& definition,const string& input,  const string& morse, const string& error, const bool show_tree) {
+void game_render(const string& target, const string& definition, const string& input,
+    const string& morse, const string& error, bool show_tree, MorseNode* cur, char next_expected) {
     clear();
 
     mvprintw(ROW_TARGET_WORD, 0, "%s", target.c_str());
@@ -204,19 +210,26 @@ void game_render(const string& target, const string& definition,const string& in
         mvprintw(15, 0, "    P-W   D-X  ");
         mvprintw(16, 0, "      |   |    ");
         mvprintw(17, 0, "      J   B    ");
+
+        highlight_node(cur, next_expected);  // overlay color on top
     }
 
     if (!error.empty())
         mvprintw(ROW_ERROR, 0, "%s", error.c_str());
-
     refresh();
 }
 
-vector<pair<string,string>> start_menu() {
+vector<pair<string,string>> menu_render() {
     mvprintw(0, 0, "SELECT Difficulty (1, 2, 3)");
     mvprintw(2, 0, "1. Easy");
     mvprintw(3, 0, "2. Medium");
     mvprintw(4, 0, "3. Hard");
+
+    mvprintw(6, 0, "Controls:  Z is a '.'");
+    mvprintw(7, 0, "           X is a '-'");
+    mvprintw(8, 0, "           SPACE to clear input");
+    mvprintw(9, 0, "           H to toggle tree");
+    mvprintw(10, 0,"           Q to quit and restart");
     refresh();
 
     int ch;
@@ -236,6 +249,20 @@ vector<pair<string,string>> start_menu() {
     }
 }
 
+void end_render() {
+    clear();
+    mvprintw(0, 0, "GAME OVER");
+    mvprintw(2, 0, "===STATS===");
+    mvprintw(3, 0, "Words completed: x%d", player.words_completed);
+    mvprintw(4, 0, "Longest streak: x%d", player.longest_streak);
+    mvprintw(5, 0, "Resets: x%d", player.errors);
+
+    mvprintw(7, 0, "Press 'SPACE' to exit");
+    refresh();
+
+    wait_for_key(' ');
+}
+
 int main(int argc, char* argv[]) {
     srand((unsigned)time(NULL) * 2654435761u);
 
@@ -249,7 +276,7 @@ int main(int argc, char* argv[]) {
     MorseNode* root = buildMorseTree();
     MorseNode* cur = root;
 
-    vector<pair<string,string>> word_list = start_menu();
+    vector<pair<string,string>> word_list = menu_render();
     int word_index = 0;
 
     string target_word = word_list.at(word_index).first;
@@ -264,18 +291,14 @@ int main(int argc, char* argv[]) {
     player.cur_streak = 0;
     player.longest_streak = 0;
     
-    game_render(target_word, definition, input, morse, error, show_tree);
+    game_render(target_word, definition, input, morse, error, show_tree, cur, '\0');
 
-    // add timing + GAME OVER screen(display streak and errors), add color to graph DONE
-    // Implement controls help (Z,X, SPACE, H, Q(end game, and restart))
     int ch;
     while ((ch = getch()) != 'q') { 
         error = "";
-
         if (ch == 'h') {
             show_tree = !show_tree;  
         }
-
         if (ch == 'z') {
             if (cur->dot) {
                 cur = cur->dot;
@@ -292,29 +315,30 @@ int main(int argc, char* argv[]) {
             cur = root;
             morse = "";
             player.errors++;
-            if (player.cur_streak > player.longest_streak) {
+            if (player.cur_streak > player.longest_streak)
                 player.longest_streak = player.cur_streak;
-            }
             player.cur_streak = 0;
         }
-
         if (ch == 'z' || ch == 'x') {
             size_t next = input.size();
             if (cur->letter != '\0' && next < target_word.size() && cur->letter == target_word[next]) {
                 input += cur->letter;
                 cur = root;
                 morse = "";
-
                 if (input == target_word) {
                     player.cur_streak++;
-                    //string msg = "SUCCESS! Press any key to CONTINUE... (x" + std::to_string(player.cur_streak) + ")";
-                    string msg = "SUCCESS! Press any key to CONTINUE... ";
-
-                    game_render(target_word, definition, input, morse, msg, show_tree);
+                    player.words_completed++;  
+                    if (player.cur_streak > player.longest_streak) {
+                        player.longest_streak = player.cur_streak;  
+                    }
+                    string msg = "SUCCESS! Press any key to CONTINUE... (Current streak: x" + std::to_string(player.cur_streak) + ")";
+                    char ne = '\0'; 
+                    game_render(target_word, definition, input, morse, msg, show_tree, cur, ne);
                     getch();
                     word_index++;
-                    if (word_index >= (int)word_list.size())
+                    if (word_index >= (int)word_list.size()) {
                         word_index = 0;
+                    }
                     target_word = word_list.at(word_index).first;
                     definition  = word_list.at(word_index).second;
                     input = "";
@@ -322,8 +346,13 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        game_render(target_word, definition, input, morse, error, show_tree);
+        char next_expected = (input.size() < target_word.size()) ? target_word[input.size()] : '\0';
+        game_render(target_word, definition, input, morse, error, show_tree, cur, next_expected);
     }
+    if (player.cur_streak > player.longest_streak) {
+        player.longest_streak = player.cur_streak;
+    }
+    end_render();
 
     freeMorseTree(root);
     endwin();
